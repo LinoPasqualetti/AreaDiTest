@@ -1,0 +1,51 @@
+name: area_di_test
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Dipendenze di base
+  cupertino_icons: ^1.0.8
+  open_filex: ^4.4.0
+  
+  # Dipendenze per la schermata CatturaDialoghi
+  pdf: ^3.10.8
+  markdown: ^7.2.1
+  
+  # Dipendenze per la schermata Sistema
+  device_info_plus: ^10.1.0
+  package_info_plus: ^8.0.0
+
+  # Dipendenze per la gestione dei percorsi
+  path_provider: ^2.1.2
+  path: ^1.9.0
+
+  # Dipendenze per il database
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3
+  sqflite_common_ffi_web: ^0.4.3+2
+  
+  # Per tabelle avanzate
+  data_table_2: ^2.5.10
+
+  # FIX: Aggiunta per aprire URL
+  url_launcher: ^6.2.1
+
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/fonts/
+    - assets/databases/
