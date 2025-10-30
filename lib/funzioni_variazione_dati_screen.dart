@@ -13,34 +13,35 @@ class FunzioniVariazioneDatiScreen extends StatefulWidget {
       _FunzioniVariazioneDatiScreenState();
 }
 
-// FIX: Aggiunto il mixin per la permanenza dello stato
 class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScreen> with AutomaticKeepAliveClientMixin {
-  static const String _defaultQuery = """
-select distinct percradice||percresto||Volume as PerApertura,Numpag,titolo,volume,ArchivioProvenienza, strumento,primolink, percradice,percresto 
-from spartiti
-where 
-tipoMulti like 'PD%'
-and titolo like 'chat%'
-order by titolo,strumento
-""";
+  // Rimosso _defaultQuery per renderlo dinamico
 
   bool _isLoading = true;
   bool _isQueryRunning = false;
   String? _error;
   List<Map<String, dynamic>> _queryResults = [];
+  // _tableFields non è più necessario per la UI, ma lo manteniamo per debug o usi futuri
   List<String> _tableFields = [];
 
-  final TextEditingController _sqlController = TextEditingController(
-    text: _defaultQuery,
-  );
+  // Il controller viene inizializzato in initState per usare la variabile globale
+  late final TextEditingController _sqlController;
 
-  // FIX: Override della proprietà del mixin
   @override
   bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
+
+    // Costruisce dinamicamente la query di default
+    final String defaultQuery = """
+select distinct percradice||percresto||Volume as PerApertura,Numpag,titolo,volume,ArchivioProvenienza, strumento,primolink, percradice,percresto 
+from $gSpartitiTableName where tipoMulti like 'PD%' and titolo like 'love%'
+order by titolo,strumento
+""";
+
+    _sqlController = TextEditingController(text: defaultQuery);
+
     _loadTableInfo();
   }
 
@@ -59,7 +60,7 @@ order by titolo,strumento
       return;
     }
     try {
-      final tableInfo = await gDatabase!.rawQuery('PRAGMA table_info(spartiti);');
+      final tableInfo = await gDatabase!.rawQuery('PRAGMA table_info($gSpartitiTableName);');
       final fields = tableInfo.map((row) => row['name'] as String).toList();
       if (mounted) {
         setState(() {
@@ -90,7 +91,6 @@ order by titolo,strumento
 
   @override
   Widget build(BuildContext context) {
-    // FIX: Chiamata a super.build() per il mixin
     super.build(context);
 
     if (_isLoading) {
@@ -105,15 +105,15 @@ order by titolo,strumento
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-           Text("Database corrente: $gDatabaseName", style: const TextStyle(fontWeight: FontWeight.bold, fontStyle: FontStyle.italic)),
+           Text("Tabella attiva: $gSpartitiTableName", style: const TextStyle(fontWeight: FontWeight.bold, fontStyle: FontStyle.italic)),
            const SizedBox(height: 10),
           TextField(
             controller: _sqlController,
-            maxLines: 7,
+            maxLines: 5,
             decoration: const InputDecoration(labelText: 'Comando SQL', border: OutlineInputBorder()),
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.redAccent),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 5),
           _buildQueryControls(),
           const Divider(),
           Expanded(
@@ -125,6 +125,10 @@ order by titolo,strumento
   }
 
   Widget _buildQueryControls() {
+    const List<String> campiDaEsporre = [
+      'titolo', 'autore', 'strumento', 'volume', 'tipodocu', 'archivioProvenienza'
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -135,33 +139,28 @@ order by titolo,strumento
               icon: const Icon(Icons.play_arrow),
               label: const Text('Esegui Query'),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 8),
             if (!_isQueryRunning && _queryResults.isNotEmpty)
               Text('Trovati: ${_queryResults.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
-        if (_tableFields.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          const Text('Campi disponibili:'),
-          SizedBox(
-            height: 40,
-            child: SingleChildScrollView(
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Campi disponibili: '),
+            Expanded(
               child: Wrap(
-                spacing: 6.0,
-                runSpacing: 2.0,
-                children: _tableFields.map((field) => ActionChip(
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  labelPadding: const EdgeInsets.symmetric(horizontal: 4.0),
-                  label: Text(field, style: const TextStyle(fontSize: 11)),
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: field));
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copiato: $field'), duration: const Duration(seconds: 1)));
-                  },
+                spacing: 8.0,
+                runSpacing: 4.0,
+                children: campiDaEsporre.map((field) => SelectableText(
+                  field,
+                  style: const TextStyle(fontSize: 11, backgroundColor: Color.fromARGB(255, 235, 235, 235)),
                 )).toList(),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
         const SizedBox(height: 10),
       ],
     );
@@ -169,7 +168,7 @@ order by titolo,strumento
 
   Widget _buildResultsSection() {
     if (_isQueryRunning) return const Center(child: CircularProgressIndicator());
-    if (_error != null) return Center(child: SelectableText(_error!, style: const TextStyle(color: Colors.red)));
+    if (_error != null) return Center(child: SelectableText(_error!, style: const TextStyle(color: Colors.blue)));
     if (_queryResults.isEmpty) return const Center(child: Text('Nessun risultato o query non ancora eseguita.'));
 
     final columnKeys = _queryResults.first.keys.toList();
