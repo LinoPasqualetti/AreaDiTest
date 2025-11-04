@@ -6,7 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:path/path.dart' as p;
 import 'dart:io';
 
-import 'package:area_di_test/main.dart'; // Import per accedere a gDbGlobale
+import 'main.dart'; // Import per accedere a gDbGlobale
+import 'pdf_opener_utils.dart'; // Importa le nuove utility
 
 class TestAperturaFilesScreen extends StatefulWidget {
   const TestAperturaFilesScreen({super.key});
@@ -85,8 +86,66 @@ class _TestAperturaFilesScreenState extends State<TestAperturaFilesScreen> with 
     setState(() {
       _constructedPath = filePath;
     });
-    _updateStatus('Percorso costruito. Ora puoi testare l\'esistenza o l\'apertura.');
+    _updateStatus('Percorso costruito. Ora puoi testare l\'esistenza o l\'apertura.'); // FIX
   }
+
+  /// 2. Apre il file con il lettore esterno usando il percorso principale.
+  Future<void> _openWithExternalReader() async {
+    final path = _pathController.text.trim();
+    if (path.isEmpty) {
+      _updateStatus('Errore: Il percorso nell\'Input Principale è vuoto.');
+      return;
+    }
+
+    try {
+      final page = _pageController.text.trim();
+      final fullPath = page.isNotEmpty ? '$path#page=$page' : path;
+      
+      _updateStatus('Tentativo di apertura con lettore esterno...\n$fullPath');
+      final result = await OpenFilex.open(path); // Si usa il path senza frammento
+
+      if (result.type != ResultType.done) {
+        throw result.message;
+      }
+      _updateStatus('Apertura avviata con successo per: \n$fullPath');
+
+    } catch (e) {
+      _updateError(e);
+    }
+  }
+
+  /// 3. Apre il file usando la logica interna di PdfOpenerUtils.
+  Future<void> _openWithInternalManager() async {
+    final path = _pathController.text.trim(); // FIX: Usa il percorso principale
+    if (path.isEmpty) {
+      _updateStatus('Errore: Il percorso nell\'Input Principale è vuoto.');
+      return;
+    }
+
+    final page = _pageController.text.trim();
+    _updateStatus('Verifica del file in corso...\n$path');
+
+    try {
+      final file = File(path);
+      final exists = await file.exists();
+
+      if (exists && mounted) {
+        final pageToShow = page.isNotEmpty ? page : '1';
+        _updateStatus("File trovato: $path. Tentativo di apertura nativa a pagina: $pageToShow...");
+        await PdfOpenerUtils.apriPdf(
+          context: context,
+          percorsoPdf: path,
+          mode: PdfOpenMode.NATIVO,
+          page: int.tryParse(page),
+        );
+      } else if (mounted) {
+        _updateStatus("File non trovato: $path. Impossibile aprire.");
+      }
+    } catch (e) {
+      _updateError(e);
+    }
+  }
+
 
   /// Controlla se il file esiste al percorso dell'Input Principale.
   Future<void> _checkFileExistence() async {
@@ -99,9 +158,9 @@ class _TestAperturaFilesScreenState extends State<TestAperturaFilesScreen> with 
       final file = File(pathToCheck);
       final exists = await file.exists();
       if (exists) {
-        _updateStatus('OK: Il file esiste al percorso principale specificato.');
+        _updateStatus('OK: Il file esiste al percorso:\n$pathToCheck');
       } else {
-        _updateStatus('ERRORE: Il file NON è stato trovato al percorso principale specificato.');
+        _updateStatus('ERRORE: Il file NON è stato trovato al percorso:\n$pathToCheck');
       }
     } catch (e) {
       _updateError(e);
@@ -245,15 +304,37 @@ class _TestAperturaFilesScreenState extends State<TestAperturaFilesScreen> with 
               label: const Text('1. Apertura Diretta'),
             ),
             ElevatedButton.icon(
-              onPressed: () { _updateStatus("Pulsante 'Reader Esterno' premuto. Logica non implementata."); },
+              onPressed: _openWithExternalReader,
               icon: const Icon(Icons.picture_as_pdf),
               label: const Text('2. Reader Esterno'),
             ),
-            ElevatedButton.icon(
-              onPressed: () { _updateStatus("Pulsante 'Gestore Interno' premuto. Logica non implementata."); },
-              icon: const Icon(Icons.integration_instructions_outlined),
-              label: const Text('3. Gestore Interno (Jamset)'),
+            //ElevatedButton.icon(
+            //  onPressed: _openWithInternalManager,
+            //  icon: const Icon(Icons.integration_instructions_outlined),
+            //  label: const Text('3. Gestore Interno (Jamset)'),
+            //),
+            /////TEST DA JAMSET APRI ESTERNO AD UNA PAGINA
+            ElevatedButton(
+              child: const Text('3. Gestore Interno (Jamset)'),
+              onPressed: () async {
+                final percorso= _pathController.text.trim();
+                final pagina= _pageController.text.trim();
+                if (percorso != null && mounted) {
+                  await PdfOpenerUtils.apriPdf(
+                      context: context,
+                      percorsoPdf: percorso,
+                      mode: PdfOpenMode.NATIVO,
+                      page: pagina != null ? int.tryParse(pagina) : null,
+                  );
+                } else if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("File non trovato. Impossibile aprire.")),
+                  );
+                }
+                /// Navigator.of(dialogContext).pop();
+              },
             ),
+            /////TEST DA JAMSET APRI ESTERNO AD UNA PAGINA
             ElevatedButton.icon(
               onPressed: () { _updateStatus("Pulsante 'Browser (URI)' premuto. Logica non implementata."); },
               icon: const Icon(Icons.public),

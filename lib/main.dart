@@ -8,45 +8,60 @@ import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
-import 'package:area_di_test/database_utils.dart';
+import 'database_utils.dart';
 
-import 'package:area_di_test/CatturaDialoghi.dart';
-import 'package:area_di_test/test_parametri_sistema_screen.dart';
-import 'package:area_di_test/primo_test_db_screen.dart';
-import 'package:area_di_test/test_base_catalogo_screen.dart';
-import 'package:area_di_test/test_apertura_files_screen.dart';
-import 'package:area_di_test/funzioni_variazione_dati_screen.dart';
-import 'package:area_di_test/catalogazione_derivata_screen.dart';
+// --- Schermate dell'app ---
+import 'CatturaDialoghi.dart';
+import 'test_parametri_sistema_screen.dart';
+import 'primo_test_db_screen.dart';
+import 'test_base_catalogo_screen.dart';
+import 'test_apertura_files_screen.dart';
+import 'funzioni_variazione_dati_screen.dart';
+import 'catalogazione_derivata_screen.dart';
 
-// --- Gestione Database Globale ---
+// --- Logica di apertura file specifica per piattaforma ---
+import 'platform/opener_platform_interface.dart';
+import 'platform/android_opener.dart';
+import 'platform/windows_opener.dart';
+
+
+// --- Gestione Database e Variabili Globali ---
 const String _dbGlobaleName = 'DBGlobale_seed.db';
 const String _vecchioDbName = 'VecchioDb.db';
 
 Database? gDbGlobale;
-Database? gDatabase; // Mantenuto per compatibilita con `funzioni_variazione_dati_screen`
+Database? gDatabase;
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>(); // CHIAVE DI NAVIGAZIONE GLOBALE
 
 String gDbGlobalePath = '';
 String gVecchioDbPath = '';
-String gSpartitiTableName = ''; // Variabile globale per il nome della tabella spartiti
+String gSpartitiTableName = '';
+String gPercorsoPdf = ''; 
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // --- INIZIALIZZAZIONE PIATTAFORMA E SCELTA TABELLA ---
+  // --- INIZIALIZZAZIONE SPECIFICA PER PIATTAFORMA ---
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWeb;
     gSpartitiTableName = 'spartiti_andr';
+    // OpenerPlatformInterface.instance = WebOpener(); // Esempio per il futuro
   } else if (Platform.isWindows) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     gSpartitiTableName = 'spartiti';
-  } else if (Platform.isAndroid || Platform.isIOS) {
+    OpenerPlatformInterface.instance = WindowsOpener(); // Inizializzazione per Windows
+  } else if (Platform.isAndroid) {
     gSpartitiTableName = 'spartiti_andr';
-  } else { // Altri desktop
+    OpenerPlatformInterface.instance = AndroidOpener(); // Inizializzazione per Android
+  } else { // Altre piattaforme desktop/mobile
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     gSpartitiTableName = 'spartiti_andr';
+    // OpenerPlatformInterface.instance = UnsupportedOpener(); // Esempio per il futuro
   }
+
   print("Piattaforma: ${Platform.operatingSystem}. Tabella spartiti selezionata: '$gSpartitiTableName'");
 
   // Apertura di tutti i database all'avvio
@@ -56,11 +71,17 @@ Future<void> main() async {
 
     gDatabase = await initDatabase(_vecchioDbName);
     gVecchioDbPath = gDatabase!.path;
+    
+    // Legge il percorso del PDF viewer dal DB
+    final datiSistema = await gDbGlobale!.query('DatiSistremaApp', limit: 1);
+    if (datiSistema.isNotEmpty && datiSistema.first['PercorsoPdf'] != null) {
+      gPercorsoPdf = datiSistema.first['PercorsoPdf'] as String;
+    }
 
     print("Database aperti con successo:");
     print("- DBGlobale in: $gDbGlobalePath");
-    print("- Tabella Spartiti: $gSpartitiTableName");
     print("- VecchioDB in: $gVecchioDbPath");
+    print("- Percorso PDF globale: $gPercorsoPdf");
 
   } catch (e) {
     print("ERRORE CRITICO APERTURA DB: $e");
@@ -75,6 +96,7 @@ class AreaDiTestApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey, // COLLEGA LA CHIAVE GLOBALE
       title: 'Area di Test - Base Pulita',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

@@ -1,17 +1,28 @@
+#####PER PARTIRE DA area_di_test
 name: area_di_test
 description: "A new Flutter project."
 publish_to: 'none'
+dependency_overrides:
 version: 1.0.0+1
+
+
+#####PER PARTIRE DA apri_uri la maschera che attiva pdf
+#name: apri_uri
+#description: "Un'app per aprire URI"
+
+#publish_to: 'none'
+
+#version: 1.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
-
 dependencies:
   flutter:
     sdk: flutter
 
   # Dipendenze di base
   cupertino_icons: ^1.0.8
+  file_picker: ^10.3.3
   open_filex: ^4.4.0
   
   # Dipendenze per la schermata CatturaDialoghi
@@ -23,8 +34,10 @@ dependencies:
   package_info_plus: ^8.0.0
 
   # Dipendenze per la gestione dei percorsi
-  path_provider: ^2.1.2
+  path_provider: ^2.1.3
   path: ^1.9.0
+  http: ^1.2.1
+  permission_handler: ^11.3.1
 
   # Dipendenze per il database
   sqflite: ^2.3.3
@@ -35,7 +48,7 @@ dependencies:
   data_table_2: ^2.5.10
 
   # FIX: Aggiunta per aprire URL
-  url_launcher: ^6.2.1
+  url_launcher: ^6.2.2
 
 
 dev_dependencies:

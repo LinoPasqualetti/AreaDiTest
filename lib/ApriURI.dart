@@ -62,7 +62,7 @@ class _MyHomePageState extends State<MyHomePage> {
             TextField(
               controller: _pagesController,
               decoration: InputDecoration(
-                labelText: 'Numero di pagine',
+                labelText: 'Numero di pagina',
                 border: OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
