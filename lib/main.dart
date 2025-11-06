@@ -18,6 +18,7 @@ import 'test_base_catalogo_screen.dart';
 import 'test_apertura_files_screen.dart';
 import 'funzioni_variazione_dati_screen.dart';
 import 'catalogazione_derivata_screen.dart';
+import 'AttivaDatieDB.dart'; // Importa la schermata di configurazione
 
 // --- Logica di apertura file specifica per piattaforma ---
 import 'platform/opener_platform_interface.dart';
@@ -32,7 +33,7 @@ const String _vecchioDbName = 'VecchioDb.db';
 Database? gDbGlobale;
 Database? gDatabase;
 
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>(); // CHIAVE DI NAVIGAZIONE GLOBALE
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 String gDbGlobalePath = '';
 String gVecchioDbPath = '';
@@ -42,29 +43,42 @@ String gPercorsoPdf = '';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // --- INIZIALIZZAZIONE SPECIFICA PER PIATTAFORMA ---
+  // --- INIZIALIZZAZIONE DELLA FACTORY DEL DATABASE (FIX) ---
+  // Questo blocco deve venire PRIMA di qualsiasi operazione sul DB.
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWeb;
     gSpartitiTableName = 'spartiti_andr';
-    // OpenerPlatformInterface.instance = WebOpener(); // Esempio per il futuro
   } else if (Platform.isWindows) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     gSpartitiTableName = 'spartiti';
-    OpenerPlatformInterface.instance = WindowsOpener(); // Inizializzazione per Windows
+    OpenerPlatformInterface.instance = WindowsOpener();
   } else if (Platform.isAndroid) {
     gSpartitiTableName = 'spartiti_andr';
-    OpenerPlatformInterface.instance = AndroidOpener(); // Inizializzazione per Android
-  } else { // Altre piattaforme desktop/mobile
+    OpenerPlatformInterface.instance = AndroidOpener();
+  } else {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     gSpartitiTableName = 'spartiti_andr';
-    // OpenerPlatformInterface.instance = UnsupportedOpener(); // Esempio per il futuro
   }
 
+  // Ora che la factory è inizializzata, possiamo controllare se il DB esiste
+  final supportDir = await getApplicationSupportDirectory();
+  final dbPath = p.join(supportDir.path, _dbGlobaleName);
+  final bool dbExists = await databaseExists(dbPath);
+
+  if (!dbExists) {
+    // Se il DB non esiste, lancia la schermata di configurazione
+    runApp(const MaterialApp(
+      home: AttivaDatieDB(),
+      debugShowCheckedModeBanner: false,
+    ));
+    return; // Interrompe l'esecuzione del main normale
+  }
+
+  // --- INIZIALIZZAZIONE NORMALE DELL'APP (se il DB esiste) ---
   print("Piattaforma: ${Platform.operatingSystem}. Tabella spartiti selezionata: '$gSpartitiTableName'");
 
-  // Apertura di tutti i database all'avvio
   try {
     gDbGlobale = await initDatabase(_dbGlobaleName);
     gDbGlobalePath = gDbGlobale!.path;
@@ -72,7 +86,6 @@ Future<void> main() async {
     gDatabase = await initDatabase(_vecchioDbName);
     gVecchioDbPath = gDatabase!.path;
     
-    // Legge il percorso del PDF viewer dal DB
     final datiSistema = await gDbGlobale!.query('DatiSistremaApp', limit: 1);
     if (datiSistema.isNotEmpty && datiSistema.first['PercorsoPdf'] != null) {
       gPercorsoPdf = datiSistema.first['PercorsoPdf'] as String;
@@ -96,7 +109,7 @@ class AreaDiTestApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: navigatorKey, // COLLEGA LA CHIAVE GLOBALE
+      navigatorKey: navigatorKey,
       title: 'Area di Test - Base Pulita',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -211,10 +224,19 @@ class _MainScreenState extends State<MainScreen> {
                   const SizedBox(height: 16),
                   _buildTableData(dialogContext, 'elenco_cataloghi', elencoCataloghi),
                   const Divider(height: 32),
-                  // NUOVA SEZIONE: Catalogo Attivo
                   _buildInfoCatalogoAttivo(dialogContext),
                   const Divider(height: 32),
                   Text('Strumenti Sviluppatore', style: Theme.of(dialogContext).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                   ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop(); // Chiude il dialogo
+                      Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AttivaDatieDB()));
+                    },
+                    icon: const Icon(Icons.settings_backup_restore, size: 18),
+                    label: const Text('Reset / Configura App'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700], foregroundColor: Colors.white),
+                  ),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: () {
