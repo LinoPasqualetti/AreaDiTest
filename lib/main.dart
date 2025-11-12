@@ -1,16 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
-import 'dart:io';
+import 'dart:io'; // <-- FIX: Aggiunto import mancante per la classe Platform
 
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
-import 'database_utils.dart';
 
-// --- Schermate dell'app ---
+// --- Logica di Business e Schermate ---
+import 'database_utils.dart';
+import 'inizializza_i_db_della_app.dart'; 
 import 'CatturaDialoghi.dart';
 import 'test_parametri_sistema_screen.dart';
 import 'primo_test_db_screen.dart';
@@ -18,88 +17,42 @@ import 'test_base_catalogo_screen.dart';
 import 'test_apertura_files_screen.dart';
 import 'funzioni_variazione_dati_screen.dart';
 import 'catalogazione_derivata_screen.dart';
-import 'AttivaDatieDB.dart'; // Importa la schermata di configurazione
+import 'GestisciElencoCataloghi.dart';
+import 'menu_delle_variazioni_db.dart'; // <-- NUOVO IMPORT
 
 // --- Logica di apertura file specifica per piattaforma ---
 import 'platform/opener_platform_interface.dart';
 import 'platform/android_opener.dart';
 import 'platform/windows_opener.dart';
 
-
-// --- Gestione Database e Variabili Globali ---
-const String _dbGlobaleName = 'DBGlobale_seed.db';
-const String _vecchioDbName = 'VecchioDb.db';
-
+// --- Variabili Globali ---
+String gActiveCatalogDbName = ''; 
 Database? gDbGlobale;
-Database? gDatabase;
-
+Database? gDatabase; 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
 String gDbGlobalePath = '';
 String gVecchioDbPath = '';
-String gSpartitiTableName = '';
-String gPercorsoPdf = ''; 
+const String gSpartitiTableName = 'spartiti';
+String gPercorsoPdf = '';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // --- INIZIALIZZAZIONE DELLA FACTORY DEL DATABASE (FIX) ---
-  // Questo blocco deve venire PRIMA di qualsiasi operazione sul DB.
+  // Inizializzazione della factory del DB per la piattaforma corrente
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWeb;
-    gSpartitiTableName = 'spartiti_andr';
-  } else if (Platform.isWindows) {
+  } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    gSpartitiTableName = 'spartiti';
+  }
+
+  if (Platform.isWindows) {
     OpenerPlatformInterface.instance = WindowsOpener();
   } else if (Platform.isAndroid) {
-    gSpartitiTableName = 'spartiti_andr';
     OpenerPlatformInterface.instance = AndroidOpener();
-  } else {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-    gSpartitiTableName = 'spartiti_andr';
   }
 
-  // Ora che la factory è inizializzata, possiamo controllare se il DB esiste
-  final supportDir = await getApplicationSupportDirectory();
-  final dbPath = p.join(supportDir.path, _dbGlobaleName);
-  final bool dbExists = await databaseExists(dbPath);
-
-  if (!dbExists) {
-    // Se il DB non esiste, lancia la schermata di configurazione
-    runApp(const MaterialApp(
-      home: AttivaDatieDB(),
-      debugShowCheckedModeBanner: false,
-    ));
-    return; // Interrompe l'esecuzione del main normale
-  }
-
-  // --- INIZIALIZZAZIONE NORMALE DELL'APP (se il DB esiste) ---
-  print("Piattaforma: ${Platform.operatingSystem}. Tabella spartiti selezionata: '$gSpartitiTableName'");
-
-  try {
-    gDbGlobale = await initDatabase(_dbGlobaleName);
-    gDbGlobalePath = gDbGlobale!.path;
-
-    gDatabase = await initDatabase(_vecchioDbName);
-    gVecchioDbPath = gDatabase!.path;
-    
-    final datiSistema = await gDbGlobale!.query('DatiSistremaApp', limit: 1);
-    if (datiSistema.isNotEmpty && datiSistema.first['PercorsoPdf'] != null) {
-      gPercorsoPdf = datiSistema.first['PercorsoPdf'] as String;
-    }
-
-    print("Database aperti con successo:");
-    print("- DBGlobale in: $gDbGlobalePath");
-    print("- VecchioDB in: $gVecchioDbPath");
-    print("- Percorso PDF globale: $gPercorsoPdf");
-
-  } catch (e) {
-    print("ERRORE CRITICO APERTURA DB: $e");
-  }
-
+  // L'app parte sempre, il caricamento dei DB avviene nella MainScreen
   runApp(const AreaDiTestApp());
 }
 
@@ -130,27 +83,30 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+  bool _isInitializing = true;
+  String? _initError;
 
-  final List<Widget> _pages = const <Widget>[
-    HomeScreen(),
-    TestParametriSistemaScreen(),
-    PrimoTestDbScreen(),
-    TestBaseCatalogoScreen(),
-    CatturaDialoghiScreen(),
-    TestAperturaFilesScreen(),
-    FunzioniVariazioneDatiScreen(),
-    CatalogazioneDerivataScreen(),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    // Chiama la funzione di inizializzazione autonoma e gestisce i risultati
+    inizializzaIDbDellaApp().catchError((e) {
+      if(mounted) setState(() => _initError = e.toString());
+    }).whenComplete(() {
+      if(mounted) setState(() => _isInitializing = false);
+    });
+  }
 
-  static const List<String> _titles = <String>[
-    'main',
-    'test_parametri_sistema_screen',
-    'primo_test_db_screen',
-    'test_base_catalogo_screen',
-    'CatturaDialoghi',
-    'test_apertura_files_screen',
-    'funzioni_variazione_dati_screen',
-    'catalogazione_derivata_screen',
+  final List<String> _titles = <String>[
+    'Home',
+    'Test Parametri Sistema',
+    'Gestione Database', // <-- TITOLO AGGIORNATO
+    'Primo Test DB',
+    'Test Base Catalogo',
+    'Cattura Dialoghi',
+    'Test Apertura Files',
+    'Funzioni Variazione Dati',
+    'Catalogazione Derivata',
   ];
 
   void _onItemTapped(int index) {
@@ -159,48 +115,16 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
-  /// Funzione parametrizzata per forzare il riallineamento di un database.
-  Future<void> _forceRiallineamento(BuildContext context, String dbName) async {
-    final confermato = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Conferma Riallineamento'),
-        content: Text(
-            'Stai per cancellare il database \'$dbName\' dal dispositivo. L\'app verrà chiusa. \n\nAl riavvio, il database verrà ricreato dalla versione presente negli asset. \n\nProcedere?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Annulla')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Conferma e Chiudi App')),
-        ],
-      ),
-    );
-
-    if (confermato == true && !kIsWeb) {
-      try {
-        // Chiude il DB corretto prima di cancellarlo
-        if (dbName == _dbGlobaleName) {
-          await gDbGlobale?.close();
-        } else if (dbName == _vecchioDbName) {
-          await gDatabase?.close();
-        }
-
-        final supportDir = await getApplicationSupportDirectory();
-        final path = p.join(supportDir.path, dbName);
-        final dbFile = File(path);
-        if (await dbFile.exists()) {
-          await dbFile.delete();
-          print("RIALLINEAMENTO FORZATO: Database '$dbName' eliminato.");
-        }
-        SystemNavigator.pop();
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Errore durante l'eliminazione: $e")));
-      }
-    }
-  }
-
-  /// Mostra un dialogo con i dati di sistema dal database globale.
   Future<void> _showDatiSistemaDialog(BuildContext context) async {
     if (gDbGlobale == null || !gDbGlobale!.isOpen) {
-      // ... (codice di errore invariato)
+       showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Database non inizializzato'),
+          content: const Text('Per favore, vai alla sezione \"Gestione\" per configurare i database.'), // <-- TESTO AGGIORNATO
+          actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
+        ),
+      );
       return;
     }
 
@@ -225,38 +149,6 @@ class _MainScreenState extends State<MainScreen> {
                   _buildTableData(dialogContext, 'elenco_cataloghi', elencoCataloghi),
                   const Divider(height: 32),
                   _buildInfoCatalogoAttivo(dialogContext),
-                  const Divider(height: 32),
-                  Text('Strumenti Sviluppatore', style: Theme.of(dialogContext).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                   ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop(); // Chiude il dialogo
-                      Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AttivaDatieDB()));
-                    },
-                    icon: const Icon(Icons.settings_backup_restore, size: 18),
-                    label: const Text('Reset / Configura App'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700], foregroundColor: Colors.white),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                      _forceRiallineamento(context, _dbGlobaleName);
-                    },
-                    icon: const Icon(Icons.storage_rounded, size: 18),
-                    label: const Text('Riallinea DB Globale'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.amber[700]),
-                  ),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                      _forceRiallineamento(context, _vecchioDbName);
-                    },
-                    icon: const Icon(Icons.dns_rounded, size: 18),
-                    label: const Text('Riallinea Vecchio DB'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[700]),
-                  ),
                 ],
               ),
             ),
@@ -269,7 +161,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  /// Widget helper per visualizzare le info sul catalogo attivo.
   Widget _buildInfoCatalogoAttivo(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     return Column(
@@ -285,7 +176,7 @@ class _MainScreenState extends State<MainScreen> {
               SelectableText.rich(
                 TextSpan(style: textTheme.bodyMedium, children: <TextSpan>[
                   const TextSpan(text: 'Database: '),
-                  TextSpan(text: _vecchioDbName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  TextSpan(text: gActiveCatalogDbName, style: const TextStyle(fontWeight: FontWeight.bold)),
                 ]),
               ),
               const SizedBox(height: 4),
@@ -302,16 +193,15 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-
-  /// Widget helper per visualizzare i dati di una tabella.
   Widget _buildTableData(BuildContext context, String title, List<Map<String, dynamic>> data) {
     final textTheme = Theme.of(context).textTheme;
 
     Widget? actionButton;
-    if (title == 'DatiSistremaApp') {
-      actionButton = TextButton(onPressed: () {}, child: const Text('Varia'));
-    } else if (title == 'elenco_cataloghi') {
-      actionButton = TextButton(onPressed: () {}, child: const Text('Tratta'));
+    if (title == 'elenco_cataloghi') {
+      actionButton = TextButton(onPressed: () {
+        Navigator.of(context).pop();
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const GestisciElencoCataloghi()));
+      }, child: const Text('Gestisci'));
     }
 
     if (data.isEmpty) {
@@ -355,6 +245,41 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final List<BottomNavigationBarItem> bottomNavItems = [
+      const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+      const BottomNavigationBarItem(icon: Icon(Icons.settings_applications), label: 'Sistema'),
+      const BottomNavigationBarItem(icon: Icon(Icons.edit_document), label: 'Gestione'), // <-- ICONA E LABEL AGGIORNATE
+      const BottomNavigationBarItem(icon: Icon(Icons.storage), label: 'DB Test'),
+      const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Catalogo'),
+      const BottomNavigationBarItem(icon: Icon(Icons.description), label: 'Cattura Dialoghi'),
+      const BottomNavigationBarItem(icon: Icon(Icons.folder_open), label: 'Files'),
+      const BottomNavigationBarItem(icon: Icon(Icons.functions), label: 'Dati'),
+      const BottomNavigationBarItem(icon: Icon(Icons.compare_arrows), label: 'Cat. Derivata'),
+    ];
+    
+    final List<Widget> pages = [
+      HomeScreen(initError: _initError),
+      TestParametriSistemaScreen(),
+      const MenuDelleVariazioniDb(), // <-- SCHERMATA SOSTITUITA
+      PrimoTestDbScreen(),
+      TestBaseCatalogoScreen(),
+      CatturaDialoghiScreen(),
+      TestAperturaFilesScreen(),
+      FunzioniVariazioneDatiScreen(),
+      CatalogazioneDerivataScreen(),
+    ];
+
+    if (_isInitializing) {
+      return Scaffold(
+        body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        bottomNavigationBar: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          items: bottomNavItems,
+          currentIndex: 0,
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         toolbarHeight: 40.0,
@@ -370,20 +295,11 @@ class _MainScreenState extends State<MainScreen> {
       ),
       body: IndexedStack(
         index: _selectedIndex,
-        children: _pages,
+        children: pages,
       ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings_applications), label: 'Sistema'),
-          BottomNavigationBarItem(icon: Icon(Icons.storage), label: 'DB Test'),
-          BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Catalogo'),
-          BottomNavigationBarItem(icon: Icon(Icons.description), label: 'Cattura Dialoghi'),
-          BottomNavigationBarItem(icon: Icon(Icons.folder_open), label: 'Files'),
-          BottomNavigationBarItem(icon: Icon(Icons.functions), label: 'Dati'),
-          BottomNavigationBarItem(icon: Icon(Icons.compare_arrows), label: 'Cat. Derivata'),
-        ],
+        items: bottomNavItems,
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         selectedFontSize: 12,
@@ -394,12 +310,21 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  final String? initError;
+  const HomeScreen({this.initError, super.key});
+
   @override
   Widget build(BuildContext context) {
-    String statusText = (gDatabase != null && gDatabase!.isOpen) && (gDbGlobale != null && gDbGlobale!.isOpen)
-        ? 'Tutti i database sono stati aperti con successo all\'avvio.\nPronti per essere usati nelle altre schermate.'
-        : 'ERRORE: Uno o piu database non sono stati aperti correttamente.';
+    String statusText;
+    bool isDbOk = (gDatabase != null && gDatabase!.isOpen) && (gDbGlobale != null && gDbGlobale!.isOpen);
+    
+    String errorText = initError ?? 'Usare la sezione "Gestione" per configurare i database.';
+
+    if (isDbOk) {
+        statusText = 'Tutti i database sono stati aperti con successo.';
+    } else {
+        statusText = 'Database non inizializzati. \n$errorText';
+    }
 
     return Center(
         child: Padding(
@@ -407,7 +332,7 @@ class HomeScreen extends StatelessWidget {
       child: SelectableText(
         statusText,
         textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 18, color: (gDatabase != null && gDatabase!.isOpen) ? Colors.black : Colors.red),
+        style: TextStyle(fontSize: 18, color: isDbOk ? Colors.black : Colors.red),
       ),
     ));
   }

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:data_table_2/data_table_2.dart';
 
 import 'package:area_di_test/database_utils.dart';
-import 'package:area_di_test/main.dart'; // Import per accedere a gDatabase
+import 'package:area_di_test/main.dart'; // Import per accedere alle variabili globali
 
 class PrimoTestDbScreen extends StatefulWidget {
   const PrimoTestDbScreen({super.key});
@@ -15,16 +16,15 @@ class _PrimoTestDbScreenState extends State<PrimoTestDbScreen> {
   bool _isLoading = true;
   String? _error;
 
-  // DB locale, gestito da questo widget
   Database? _dbGlobale;
   static const String _dbGlobaleName = 'DBGlobale_seed.db';
 
-  // Dati per la UI
   List<Map<String, dynamic>> _datiSistemaApp = [];
   List<Map<String, dynamic>> _elencoCataloghi = [];
-  final Map<String, List<Map<String, dynamic>>> _vecchioDbData = {};
+  // FIX: Rinominate le variabili per riflettere il catalogo attivo
+  final Map<String, List<Map<String, dynamic>>> _activeCatalogData = {};
   String _dbGlobalePath = '';
-  String _vecchioDbPath = '';
+  String _activeCatalogPath = '';
 
   @override
   void initState() {
@@ -34,36 +34,33 @@ class _PrimoTestDbScreenState extends State<PrimoTestDbScreen> {
 
   @override
   void dispose() {
-    // Chiude SOLO il DB locale quando lo screen viene distrutto
     _dbGlobale?.close();
     super.dispose();
   }
 
   Future<void> _initAndLoadData() async {
     try {
-      // 1. Gestisce DBGlobale localmente
       _dbGlobale = await initDatabase(_dbGlobaleName);
       _dbGlobalePath = _dbGlobale!.path;
       _datiSistemaApp = await _dbGlobale!.query('DatiSistremaApp');
       _elencoCataloghi = await _dbGlobale!.query('elenco_cataloghi');
 
-      // 2. Usa gDatabase per VecchioDB, senza aprirlo ne chiuderlo
+      // Usa il gDatabase globale che è già stato impostato sul catalogo attivo
       if (gDatabase != null && gDatabase!.isOpen) {
-        _vecchioDbPath = gDatabase!.path;
+        _activeCatalogPath = gDatabase!.path;
         final tables = await gDatabase!.query('sqlite_master', where: 'type = ?', whereArgs: ['table']);
         for (var table in tables) {
           final tableName = table['name'] as String;
           if (tableName.startsWith('sqlite_')) continue;
-          _vecchioDbData[tableName] = await gDatabase!.query(tableName, limit: 3);
+          // FIX: Popola la mappa dei dati del catalogo attivo
+          _activeCatalogData[tableName] = await gDatabase!.query(tableName, limit: 5);
         }
       } else {
-        throw Exception('Database globale (VecchioDb) non è disponibile.');
+        throw Exception('Database del catalogo attivo non è disponibile.');
       }
 
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
       }
     } catch (e) {
       if (mounted) {
@@ -80,7 +77,6 @@ class _PrimoTestDbScreenState extends State<PrimoTestDbScreen> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-
     if (_error != null) {
       return Center(
         child: Padding(
@@ -100,10 +96,11 @@ class _PrimoTestDbScreenState extends State<PrimoTestDbScreen> {
         const Divider(),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 16.0),
-          child: Text('VecchioDB - Prime 3 righe', style: Theme.of(context).textTheme.headlineSmall),
+          // FIX: Titolo dinamico con il nome del DB attivo
+          child: Text('Catalogo Attivo: $gActiveCatalogDbName - Prime 5 righe', style: Theme.of(context).textTheme.headlineSmall),
         ),
-        for (var entry in _vecchioDbData.entries) ...[
-          _buildDataTable(entry.key, entry.value, dbPath: _vecchioDbPath),
+        for (var entry in _activeCatalogData.entries) ...[
+          _buildDataTable(entry.key, entry.value, dbPath: _activeCatalogPath),
           const SizedBox(height: 16),
         ]
       ],
@@ -119,13 +116,34 @@ class _PrimoTestDbScreenState extends State<PrimoTestDbScreen> {
       ));
     }
 
-    final columns = data.first.keys.map((key) => DataColumn(label: Text(key))).toList();
+    const double headingRowHeight = 32;
+    const double dataRowHeight = 32;
+
+    final columns = data.first.keys.map((key) {
+      ColumnSize size;
+      final keyLower = key.toLowerCase();
+      
+      if (keyLower.endsWith('id') || keyLower == 'id_catalogo_attivo') {
+        size = ColumnSize.S;
+      } else if (keyLower.contains('percorso') || keyLower.contains('path') || keyLower.contains('nome') || keyLower.contains('titolo') || keyLower.contains('file')) {
+        size = ColumnSize.L;
+      } else {
+        size = ColumnSize.M;
+      }
+
+      return DataColumn2(
+        label: Text(key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+        size: size,
+      );
+    }).toList();
+
     final rows = data.map((row) {
-      return DataRow(
-          cells: row.values.map((cell) {
-        return DataCell(SelectableText(cell?.toString() ?? 'NULL'));
+      return DataRow(cells: row.values.map((cell) {
+        return DataCell(SelectableText(cell?.toString() ?? 'NULL', style: const TextStyle(fontSize: 10)));
       }).toList());
     }).toList();
+
+    final double tableHeight = headingRowHeight + (data.length * dataRowHeight) + 1;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -144,9 +162,17 @@ class _PrimoTestDbScreenState extends State<PrimoTestDbScreen> {
                   ]
                 ],
               )),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(columns: columns, rows: rows),
+          SizedBox(
+            height: tableHeight,
+            child: DataTable2(
+              columnSpacing: 10,
+              horizontalMargin: 10,
+              minWidth: 1500, 
+              headingRowHeight: headingRowHeight,
+              dataRowHeight: dataRowHeight,
+              columns: columns,
+              rows: rows,
+            ),
           ),
         ],
       ),
