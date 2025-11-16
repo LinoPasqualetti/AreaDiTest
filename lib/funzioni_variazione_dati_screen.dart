@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:data_table_2/data_table_2.dart';
 
 import 'main.dart';
+import 'platform/opener_platform_interface.dart'; 
 
 class FunzioniVariazioneDatiScreen extends StatefulWidget {
   const FunzioniVariazioneDatiScreen({super.key});
@@ -20,7 +21,6 @@ class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScr
   List<Map<String, dynamic>> _queryResults = [];
   List<String> _tableFields = [];
   
-  // FIX: Variabili separate per misurare DB e UI
   Duration? _dbQueryTime;
   Duration? _uiBuildTime;
 
@@ -76,7 +76,6 @@ order by titolo,strumento
     }
   }
 
-  // FIX: Aggiunto doppio cronometro per misurare DB vs UI
   Future<void> _executeQuery() async {
     if (gDatabase == null || _isQueryRunning) return;
     
@@ -88,21 +87,18 @@ order by titolo,strumento
     });
     
     try {
-      // 1. Misura il tempo della query sul DB (ricerca, sort, trasferimento dati)
       final dbStopwatch = Stopwatch()..start();
       final results = await gDatabase!.rawQuery(_sqlController.text);
       dbStopwatch.stop();
 
       if (mounted) {
         final uiStopwatch = Stopwatch()..start();
-        // 2. Aggiorna lo stato per far partire la ricostruzione della UI
         setState(() { 
           _queryResults = results; 
           _isQueryRunning = false; 
           _dbQueryTime = dbStopwatch.elapsed;
         });
         
-        // 3. Misura il tempo impiegato per costruire la tabella a schermo
         WidgetsBinding.instance.addPostFrameCallback((_) {
             uiStopwatch.stop();
             if (mounted) {
@@ -121,6 +117,40 @@ order by titolo,strumento
         });
       }
     }
+  }
+
+  // FIX: Resa la funzione case-insensitive per le chiavi della mappa.
+  Future<void> _openPdfFromRow(Map<String, dynamic> rowData) async {
+    // Normalizza le chiavi in minuscolo per una ricerca robusta.
+    final lowerCaseRowData = {for (var k in rowData.keys) k.toLowerCase(): rowData[k]};
+
+    if (!lowerCaseRowData.containsKey('perapertura') || !lowerCaseRowData.containsKey('numpag')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('ERRORE: La query deve contenere le colonne "PerApertura" e "Numpag" per poter aprire il PDF.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+
+    final filePath = lowerCaseRowData['perapertura'] as String?;
+    final pageNum = lowerCaseRowData['numpag'];
+
+    if (filePath == null || filePath.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('ERRORE: Il percorso del file (PerApertura) è vuoto o nullo.'),
+        backgroundColor: Colors.red,
+      ));
+      return;
+    }
+
+    final page = int.tryParse(pageNum?.toString() ?? '1') ?? 1;
+
+    print('Richiesta apertura PDF da riga: $filePath a pagina $page');
+    await OpenerPlatformInterface.instance.openPdf(
+      context: context,
+      filePath: filePath,
+      page: page,
+    );
   }
 
   @override
@@ -175,7 +205,6 @@ order by titolo,strumento
           ],
         ),
         const SizedBox(height: 8),
-        // FIX: Mostra i tempi di esecuzione separati
         if (_dbQueryTime != null) 
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -241,7 +270,10 @@ order by titolo,strumento
         return DataColumn2(label: Text(key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), size: size);
       }).toList(),
       rows: _queryResults.map((row) {
-        return DataRow(cells: row.values.map((cell) => DataCell(SelectableText(cell?.toString() ?? 'NULL', style: const TextStyle(fontSize: 11)))).toList());
+        return DataRow2(
+          onTap: () => _openPdfFromRow(row),
+          cells: row.values.map((cell) => DataCell(SelectableText(cell?.toString() ?? 'NULL', style: const TextStyle(fontSize: 11)))).toList(),
+        );
       }).toList(),
     );
   }
