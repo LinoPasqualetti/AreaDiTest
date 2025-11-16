@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'main.dart'; // Import per accedere a gDbGlobale
 import 'pdf_opener_utils.dart'; // Importa le nuove utility
+import 'platform/opener_platform_interface.dart';
 
 class TestAperturaFilesScreen extends StatefulWidget {
   const TestAperturaFilesScreen({super.key});
@@ -102,6 +103,13 @@ class _TestAperturaFilesScreenState extends State<TestAperturaFilesScreen> with 
       final fullPath = page.isNotEmpty ? '$path#page=$page' : path;
       
       _updateStatus('Tentativo di apertura con lettore esterno...\n$fullPath');
+      
+      // --- DEBUG PRINT --- 
+      print("--- VALORI PASSATI A OpenFilex.open() ---");
+      print("path: $path");
+      print("Il pacchetto OpenFilex non supporta l'apertura a una pagina specifica, quindi il frammento #page=... viene ignorato.");
+      print("--------------------------------------");
+
       final result = await OpenFilex.open(path); // Si usa il path senza frammento
 
       if (result.type != ResultType.done) {
@@ -316,15 +324,15 @@ class _TestAperturaFilesScreenState extends State<TestAperturaFilesScreen> with 
             /////TEST DA JAMSET APRI ESTERNO AD UNA PAGINA
             ElevatedButton(
               child: const Text('3. Gestore Interno (Jamset)'),
-              onPressed: () async {
+              onPressed: ()
+              async {
                 final percorso= _pathController.text.trim();
                 final pagina= _pageController.text.trim();
                 if (percorso != null && mounted) {
-                  await PdfOpenerUtils.apriPdf(
-                      context: context,
-                      percorsoPdf: percorso,
-                      mode: PdfOpenMode.NATIVO,
-                      page: pagina != null ? int.tryParse(pagina) : null,
+                  await OpenerPlatformInterface.instance.openPdf(
+                    context: context,
+                    filePath: percorso,
+                    page: int.tryParse(pagina) ?? 1,
                   );
                 } else if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

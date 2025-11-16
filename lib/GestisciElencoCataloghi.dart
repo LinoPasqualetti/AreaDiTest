@@ -1,3 +1,5 @@
+/////////GestisciElencoCataloghi.dart emette la lista dei Db catalogo presenti
+///// si può inserire o variare un db catalogo
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;

@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import '../main.dart'; // Corretto con percorso relativo
-import 'opener_platform_interface.dart'; // Corretto con percorso relativo
+import 'package:url_launcher/url_launcher.dart';
 import 'package:path/path.dart' as p;
-import 'package:url_launcher/url_launcher.dart'; 
+
+import 'opener_platform_interface.dart';
 
 class WindowsOpener implements OpenerPlatformInterface {
   @override
@@ -14,20 +14,38 @@ class WindowsOpener implements OpenerPlatformInterface {
   }) async {
     final fileExtension = p.extension(filePath).toLowerCase();
 
+    print("--- DEBUG APERTURA FILE ---");
+    print("File: $filePath");
+    print("Estensione: $fileExtension");
+    print("---------------------------");
+
     try {
       if (fileExtension == '.pdf') {
-        final pdfViewerPath = gPercorsoPdf; // Usa la variabile globale da main.dart
-        if (pdfViewerPath.isEmpty) {
-          if(context != null) _showErrorDialog(context, 'Errore di Configurazione', 'Il percorso del lettore PDF non è stato impostato.');
-          return;
+        const viewerPath = r'C:\Program Files (x86)\Adobe\Acrobat 9.0\Acrobat\Acrobat.exe';
+        const defaultViewerPath = r'C:\Program Files\Adobe\Acrobat Reader DC\Reader\AcroRd32.exe';
+
+        String pdfViewerPath;
+        if (await File(viewerPath).exists()) {
+          pdfViewerPath = viewerPath;
+        } else if (await File(defaultViewerPath).exists()) {
+          pdfViewerPath = defaultViewerPath;
+        } else {
+          throw Exception('Nessun lettore PDF (Acrobat) trovato nei percorsi standard.');
         }
 
+        // --- FIX DEFINITIVO: Ricostruisce gli argomenti nel formato corretto, come in Jamset. ---
         final args = ['/A', 'page=$page', filePath];
+        // --- PRINT DI DEBUG AGGIUNTA ---
+        print("--- COMANDO ACROBAT --- ");
+        print("Eseguibile: $pdfViewerPath");
+        print("Argomenti: ${args.join(' ')}");
+        print("-----------------------");
+        // --------------------------
+        print("INFO: Eseguo comando: $pdfViewerPath con argomenti: $args");
         await Process.start(pdfViewerPath, args, runInShell: false);
 
       } else {
         final Uri fileUri = Uri.file(filePath);
-        
         if (await canLaunchUrl(fileUri)) {
           await launchUrl(fileUri);
         } else {

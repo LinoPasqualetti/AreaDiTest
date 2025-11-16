@@ -14,16 +14,16 @@ class FunzioniVariazioneDatiScreen extends StatefulWidget {
 }
 
 class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScreen> with AutomaticKeepAliveClientMixin {
-  // Rimosso _defaultQuery per renderlo dinamico
-
   bool _isLoading = true;
   bool _isQueryRunning = false;
   String? _error;
   List<Map<String, dynamic>> _queryResults = [];
-  // _tableFields non è più necessario per la UI, ma lo manteniamo per debug o usi futuri
   List<String> _tableFields = [];
+  
+  // FIX: Variabili separate per misurare DB e UI
+  Duration? _dbQueryTime;
+  Duration? _uiBuildTime;
 
-  // Il controller viene inizializzato in initState per usare la variabile globale
   late final TextEditingController _sqlController;
 
   @override
@@ -33,7 +33,6 @@ class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScr
   void initState() {
     super.initState();
 
-    // Costruisce dinamicamente la query di default
     final String defaultQuery = """
 select distinct percradice||percresto||Volume as PerApertura,Numpag,titolo,volume,ArchivioProvenienza, strumento,primolink, percradice,percresto 
 from $gSpartitiTableName where tipoMulti like 'PD%' and titolo like 'love%'
@@ -41,7 +40,6 @@ order by titolo,strumento
 """;
 
     _sqlController = TextEditingController(text: defaultQuery);
-
     _loadTableInfo();
   }
 
@@ -54,7 +52,7 @@ order by titolo,strumento
   Future<void> _loadTableInfo() async {
     if (gDatabase == null) {
       setState(() {
-        _error = "Database non disponibile. Controllare l'errore all'avvio.";
+        _error = "Database non disponibile. Controllare l\'errore all\'avvio.";
         _isLoading = false;
       });
       return;
@@ -78,14 +76,50 @@ order by titolo,strumento
     }
   }
 
+  // FIX: Aggiunto doppio cronometro per misurare DB vs UI
   Future<void> _executeQuery() async {
     if (gDatabase == null || _isQueryRunning) return;
-    setState(() { _isQueryRunning = true; _error = null; });
+    
+    setState(() { 
+      _isQueryRunning = true; 
+      _error = null; 
+      _dbQueryTime = null;
+      _uiBuildTime = null;
+    });
+    
     try {
+      // 1. Misura il tempo della query sul DB (ricerca, sort, trasferimento dati)
+      final dbStopwatch = Stopwatch()..start();
       final results = await gDatabase!.rawQuery(_sqlController.text);
-      if (mounted) setState(() { _queryResults = results; _isQueryRunning = false; });
+      dbStopwatch.stop();
+
+      if (mounted) {
+        final uiStopwatch = Stopwatch()..start();
+        // 2. Aggiorna lo stato per far partire la ricostruzione della UI
+        setState(() { 
+          _queryResults = results; 
+          _isQueryRunning = false; 
+          _dbQueryTime = dbStopwatch.elapsed;
+        });
+        
+        // 3. Misura il tempo impiegato per costruire la tabella a schermo
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+            uiStopwatch.stop();
+            if (mounted) {
+              setState(() {
+                _uiBuildTime = uiStopwatch.elapsed;
+              });
+            }
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = "Errore esecuzione query: \n${e.toString()}"; _queryResults = []; _isQueryRunning = false; });
+      if (mounted) {
+        setState(() { 
+          _error = "Errore esecuzione query: \n${e.toString()}"; 
+          _queryResults = []; 
+          _isQueryRunning = false; 
+        });
+      }
     }
   }
 
@@ -125,10 +159,6 @@ order by titolo,strumento
   }
 
   Widget _buildQueryControls() {
-    const List<String> campiDaEsporre = [
-      'titolo', 'autore', 'strumento', 'volume', 'tipodocu', 'archivioProvenienza'
-    ];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -139,11 +169,35 @@ order by titolo,strumento
               icon: const Icon(Icons.play_arrow),
               label: const Text('Esegui Query'),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 16),
             if (!_isQueryRunning && _queryResults.isNotEmpty)
               Text('Trovati: ${_queryResults.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
+        const SizedBox(height: 8),
+        // FIX: Mostra i tempi di esecuzione separati
+        if (_dbQueryTime != null) 
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0),
+            child: Text(
+              'Tempo Query DB (ricerca+sort+transfer): ${_dbQueryTime!.inMilliseconds} ms',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _dbQueryTime!.inMilliseconds > 500 ? Colors.red : Colors.green,
+              ),
+            ),
+          ),
+        if (_uiBuildTime != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4.0),
+            child: Text(
+              'Tempo Costruzione UI (DataTable2): ${_uiBuildTime!.inMilliseconds} ms',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: _uiBuildTime!.inMilliseconds > 200 ? Colors.orange.shade800 : Colors.green,
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -153,7 +207,7 @@ order by titolo,strumento
               child: Wrap(
                 spacing: 8.0,
                 runSpacing: 4.0,
-                children: campiDaEsporre.map((field) => SelectableText(
+                children: _tableFields.map((field) => SelectableText(
                   field,
                   style: const TextStyle(fontSize: 11, backgroundColor: Color.fromARGB(255, 235, 235, 235)),
                 )).toList(),
