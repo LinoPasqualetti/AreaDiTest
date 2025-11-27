@@ -1,12 +1,10 @@
 ///////////// VariaCatalogo.dart Emette lo schermo per Inserire e variare un catalogo//////////////////////
 ///////// generalmente chiamato da GestisciElencoCataloghi.dart
+library;
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:file_picker/file_picker.dart';
 
 import 'main.dart'; // Import per usare gDbGlobale
-import 'database_utils.dart';
-import 'lista_spartiti_catalogo.dart';
 
 class VariaCatalogoScreen extends StatefulWidget {
   final Map<String, dynamic>? initialData;
@@ -200,7 +198,7 @@ class _VariaCatalogoScreenState extends State<VariaCatalogoScreen> {
                     },
                   ),
                 );
-              }).toList(),
+              }),
               if (!_isNewRecord && widget.initialData!['id'] == 1)
                 Padding(
                   padding: const EdgeInsets.only(top: 16.0),

@@ -2,8 +2,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:path/path.dart' as p;
 import 'dart:io';
 
 import 'main.dart'; // Import per accedere a gDbGlobale
@@ -328,7 +326,7 @@ class _TestAperturaFilesScreenState extends State<TestAperturaFilesScreen> with 
               async {
                 final percorso= _pathController.text.trim();
                 final pagina= _pageController.text.trim();
-                if (percorso != null && mounted) {
+                if (mounted) {
                   await OpenerPlatformInterface.instance.openPdf(
                     context: context,
                     filePath: percorso,

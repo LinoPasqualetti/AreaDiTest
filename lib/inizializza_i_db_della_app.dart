@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -10,105 +12,128 @@ const String _dbGlobaleName = 'DBGlobale_seed.db';
 const String _vecchioDbName = 'VecchioDb.db';
 const String _primoVuotoName = 'PrimoVuoto.db';
 
-/// Funzione "Guardiano" onnipotente e riutilizzabile.
-/// Ad ogni avvio, si assicura che i DB esistano, li sana se necessario,
-/// scrive la configurazione di default se mancante, e apre il catalogo attivo.
+/// Funzione "Guardiano" con logica di creazione e correzione "platform-aware".
 Future<void> inizializzaIDbDellaApp() async {
   try {
     final supportDir = await getApplicationSupportDirectory();
+    print("--- GUARDIANO: Inizio inizializzazione in: ${supportDir.path} ---");
 
-    // Fase 1: Assicura l'esistenza e la coerenza dei 3 DB fondamentali.
+    final vecchioDbPath = p.join(supportDir.path, _vecchioDbName);
+    if (!await databaseExists(vecchioDbPath)) {
+      print("INFO: VecchioDb.db non trovato. Avvio procedura di creazione e popolamento mirato...");
+      
+      final ByteData data = await rootBundle.load(p.join('assets', 'databases', _vecchioDbName));
+      List<int> bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      final tempAssetDbPath = p.join((await getTemporaryDirectory()).path, "asset_seed.db");
+      await File(tempAssetDbPath).writeAsBytes(bytes, flush: true);
+      Database seedDb = await openReadOnlyDatabase(tempAssetDbPath);
+
+      Database newDb = await openDatabase(vecchioDbPath);
+
+      try {
+        final sourceTableName = Platform.isWindows ? 'spartiti' : 'spartiti_andr';
+        final dataToInsert = await seedDb.query(sourceTableName);
+
+        await newDb.transaction((txn) async {
+          final batch = txn.batch();
+          batch.execute('CREATE TABLE $gSpartitiTableName (id_univoco_globale INTEGER PRIMARY KEY AUTOINCREMENT, IdBra INTEGER UNIQUE, titolo TEXT, autore TEXT, strumento TEXT, volume TEXT, PercRadice TEXT, PercResto TEXT, PrimoLInk TEXT, TipoMulti TEXT, TipoDocu TEXT, ArchivioProvenienza TEXT, NumPag INTEGER, NumOrig INTEGER, IdVolume TEXT, IdAutore TEXT)');
+          for (final row in dataToInsert) {
+            batch.insert(gSpartitiTableName, row, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+          await batch.commit(noResult: true);
+        });
+
+      } finally {
+        await seedDb.close();
+        await newDb.close();
+        await deleteDatabase(tempAssetDbPath);
+      }
+    }
+
+    Database dbToValidate = await openDatabase(vecchioDbPath);
+    try {
+      final ftsTableExistsResult = await dbToValidate.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='spartiti_fts'");
+      if (ftsTableExistsResult.isEmpty) {
+        print("WARN: Tabella FTS non trovata! La creo e la popolo ora (Upgrade).");
+        await dbToValidate.execute('CREATE VIRTUAL TABLE spartiti_fts USING fts5(titolo, autore, strumento, content="$gSpartitiTableName", content_rowid="IdBra")');
+        await dbToValidate.execute('INSERT INTO spartiti_fts(spartiti_fts) VALUES(\'rebuild\')');
+        print("INFO: Upgrade FTS completato.");
+      }
+    } finally {
+      await dbToValidate.close();
+    }
+
     await initDatabase(_dbGlobaleName);
-    await initDatabase(_vecchioDbName);
-
     final primoVuotoPath = p.join(supportDir.path, _primoVuotoName);
     if (!await databaseExists(primoVuotoPath)) {
-      print("INFO: Creazione di $_primoVuotoName non trovato...");
       const createStatement = 'CREATE TABLE $gSpartitiTableName ( id_univoco_globale INTEGER UNIQUE, IdBra TEXT,titolo TEXT, autore TEXT,strumento TEXT, volume TEXT,PercRadice TEXT, PercResto TEXT, PrimoLInk  TEXT, TipoMulti TEXT, TipoDocu TEXT, ArchivioProvenienza TEXT, NumPag INTEGER, NumOrig INTEGER, IdVolume TEXT,IdAutore TEXT, PRIMARY KEY (id_univoco_globale AUTOINCREMENT))';
       Database dbVuoto = await openDatabase(primoVuotoPath, version: 1, onCreate: (db, version) => db.execute(createStatement));
       await dbVuoto.close();
     }
-
-    // --- FASE 1.5: Sanificazione preventiva di VecchioDb.db ---
-    final vecchioDbPath = p.join(supportDir.path, _vecchioDbName);
-    Database dbDaSanificare = await openDatabase(vecchioDbPath);
-    try {
-        await _sanitizeVecchioDb(dbDaSanificare);
-    } finally {
-        await dbDaSanificare.close();
-    }
-
-    // Fase 2: Apertura, Validazione e Auto-Configurazione del DB Globale.
+    
     gDbGlobale = await openDatabase(p.join(supportDir.path, _dbGlobaleName));
     gDbGlobalePath = gDbGlobale!.path;
 
-    // --- LOGICA CHIRURGICA ---
-    // 1. Assicura che il catalogo master (ID=1) esista e sia corretto.
-    await gDbGlobale!.insert(
-      'elenco_cataloghi',
-      {'id': 1, 'nome_catalogo': 'Vecchio Catalogo Principale', 'descrizione': 'Catalogo di default pre-caricato.', 'nome_file_db': _vecchioDbName},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    print("INFO: Validazione del catalogo master (ID=1) completata.");
+    // --- FIX: Logica di correzione "Platform-Aware" ---
+    String os = Platform.operatingSystem;
+    String tipoInterfaccia = kIsWeb ? 'Web' : 'Nativa';
+    String percorsoPdfDefault = Platform.isAndroid ? "/storage/emulated/0/JamsetPDF/" : "C:\\JamsetPDF\\";
+    String percorsodatabaseDefault = supportDir.path;
 
-    // 2. Se DatiSistremaApp è vuoto, imposta il catalogo master come attivo.
-    final datiSistemaResult = await gDbGlobale!.query('DatiSistremaApp', limit: 1);
+    var datiSistemaResult = await gDbGlobale!.query('DatiSistremaApp', limit: 1);
     if (datiSistemaResult.isEmpty) {
-      print("WARN: DatiSistremaApp è vuota. Imposto il catalogo di default come attivo...");
+      print("INFO: DatiSistremaApp è vuota. Inserisco il record di default per $os");
       await gDbGlobale!.insert('DatiSistremaApp', {
-        'id': 1,
-        'PercorsoPdf': '',
-        'id_catalogo_attivo': 1,
+        'SistemaOperativo': os,
+        'TipoInterfaccia': tipoInterfaccia,
+        'PercorsoPdf': percorsoPdfDefault,
+        'Percorsodatabase': percorsodatabaseDefault,
+        'id_catalogo_attivo': 1
       });
-      print("INFO: Configurazione iniziale di DatiSistremaApp completata.");
+    } else {
+      final currentRecord = datiSistemaResult.first;
+      Map<String, Object?> idealRecord = {
+        'SistemaOperativo': os,
+        'TipoInterfaccia': tipoInterfaccia,
+        'PercorsoPdf': percorsoPdfDefault,
+        'Percorsodatabase': percorsodatabaseDefault,
+      };
+
+      bool needsUpdate = idealRecord.keys.any((key) => currentRecord[key] != idealRecord[key]);
+      
+      if (needsUpdate) {
+        print("WARN: DatiSistremaApp contiene valori non corretti per $os. Eseguo UPDATE.");
+        // FIX: Rimuove la clausola WHERE, dato che DatiSistremaApp è una tabella singleton
+        await gDbGlobale!.update('DatiSistremaApp', idealRecord);
+      }
+    }
+
+    datiSistemaResult = await gDbGlobale!.query('DatiSistremaApp', limit: 1);
+    var currentConfig = datiSistemaResult.first;
+    int? idCatalogoAttivo = currentConfig['id_catalogo_attivo'] as int?;
+
+    final catalogoEsiste = await gDbGlobale!.query('elenco_cataloghi', where: 'id = ?', whereArgs: [idCatalogoAttivo]);
+    if (catalogoEsiste.isEmpty) {
+        idCatalogoAttivo = 1;
     }
     
-    // Fase 3: Apre il catalogo attivo basandosi sulla configurazione (ora garantita)
-    final finalDatiSistema = (await gDbGlobale!.query('DatiSistremaApp', limit: 1)).first;
-    gPercorsoPdf = finalDatiSistema['PercorsoPdf'] as String? ?? '';
-    final idCatalogoAttivo = finalDatiSistema['id_catalogo_attivo'] as int?;
-    if (idCatalogoAttivo == null) throw Exception('id_catalogo_attivo non trovato dopo la configurazione.');
-
     final catalogoInfoResult = await gDbGlobale!.query('elenco_cataloghi', where: 'id = ?', whereArgs: [idCatalogoAttivo], limit: 1);
-    if (catalogoInfoResult.isEmpty) throw Exception('Catalogo attivo con ID $idCatalogoAttivo non trovato.');
+    if (catalogoInfoResult.isEmpty) throw Exception('ERRORE FATALE: Catalogo default con ID $idCatalogoAttivo non trovato.');
     
     final catalogoInfo = catalogoInfoResult.first;
     gActiveCatalogDbName = catalogoInfo['nome_file_db'] as String;
+    gPercorsoPdf = (currentConfig['PercorsoPdf'] as String?) ?? '';
     
     gDatabase = await openDatabase(p.join(supportDir.path, gActiveCatalogDbName));
     gVecchioDbPath = gDatabase!.path;
 
-    print("***** INIZIALIZZAZIONE COMPLETATA (Guardiano Chirurgico) *****");
+    print("***** INIZIALIZZAZIONE GLOBALE COMPLETATA *****");
 
-  } catch (e) {
+  } catch (e, s) {
     print("### ERRORE INIZIALIZZAZIONE (Guardiano): $e ###");
+    print("### STACK TRACE: $s ###");
     gDbGlobale = null;
     gDatabase = null;
     rethrow;
-  }
-}
-
-/// Controlla se in VecchioDb.db coesistono le tabelle 'spartiti' e 'spartiti_andr'
-/// e, in caso, esegue una pulizia per mantenere solo la tabella 'spartiti'.
-Future<void> _sanitizeVecchioDb(Database db) async {
-  try {
-    final spartitiExistsResult = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='spartiti'");
-    final spartitiAndrExistsResult = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='spartiti_andr'");
-
-    bool spartitiExists = spartitiExistsResult.isNotEmpty;
-    bool spartitiAndrExists = spartitiAndrExistsResult.isNotEmpty;
-
-    if (spartitiExists && spartitiAndrExists) {
-        print("WARN: Rilevata vecchia versione di VecchioDb.db. Avvio pulizia...");
-        if (Platform.isWindows) {
-            await db.execute('DROP TABLE spartiti_andr');
-        } else {
-            await db.execute('DROP TABLE spartiti');
-            await db.execute('ALTER TABLE spartiti_andr RENAME TO spartiti');
-        }
-        print("INFO: Pulizia completata. VecchioDb.db ora ha una sola tabella 'spartiti'.");
-    }
-  } catch (e) {
-    print("### ERRORE durante la sanificazione di VecchioDb.db: $e ###");
   }
 }

@@ -7,7 +7,7 @@ class PdfViewerScreen extends StatefulWidget {
   final String pdfPath;
   final int? page; // Aggiunto parametro opzionale per la pagina
 
-  const PdfViewerScreen({Key? key, required this.pdfPath, this.page}) : super(key: key);
+  const PdfViewerScreen({super.key, required this.pdfPath, this.page});
 
   @override
   State<PdfViewerScreen> createState() => _PdfViewerScreenState();

@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:data_table_2/data_table_2.dart';
 
 import 'main.dart';
@@ -34,9 +32,11 @@ class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScr
     super.initState();
 
     final String defaultQuery = """
-select distinct percradice||percresto||Volume as PerApertura,Numpag,titolo,volume,ArchivioProvenienza, strumento,primolink, percradice,percresto 
-from $gSpartitiTableName where tipoMulti like 'PD%' and titolo like 'love%'
-order by titolo,strumento
+select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.titolo,a.volume,a.ArchivioProvenienza, a.strumento,primolink, '${gPercorsoPdf}' as percradice, percresto 
+ from $gSpartitiTableName a
+ JOIN spartiti_fts fts on a.idBra=fts.rowid
+  where a.tipoMulti like 'PD%' and spartiti_fts match 'girl ipanema'
+ order by a.titolo,a.strumento
 """;
 
     _sqlController = TextEditingController(text: defaultQuery);
@@ -52,7 +52,7 @@ order by titolo,strumento
   Future<void> _loadTableInfo() async {
     if (gDatabase == null) {
       setState(() {
-        _error = "Database non disponibile. Controllare l\'errore all\'avvio.";
+        _error = "Database non disponibile. Controllare l'errore all'avvio.";
         _isLoading = false;
       });
       return;
@@ -69,7 +69,7 @@ order by titolo,strumento
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = "Errore nel leggere la struttura della tabella: \n${e.toString()}";
+          _error = "Errore nel leggere la struttura della tabella: ${e.toString()}";
           _isLoading = false;
         });
       }
@@ -111,7 +111,7 @@ order by titolo,strumento
     } catch (e) {
       if (mounted) {
         setState(() { 
-          _error = "Errore esecuzione query: \n${e.toString()}"; 
+          _error = "Errore esecuzione query: ${e.toString()}"; 
           _queryResults = []; 
           _isQueryRunning = false; 
         });
@@ -119,9 +119,11 @@ order by titolo,strumento
     }
   }
 
-  // FIX: Resa la funzione case-insensitive per le chiavi della mappa.
   Future<void> _openPdfFromRow(Map<String, dynamic> rowData) async {
-    // Normalizza le chiavi in minuscolo per una ricerca robusta.
+    print("--- DEBUG: Dati ricevuti dalla riga selezionata ---");
+    print(rowData);
+    print("--------------------------------------------------");
+
     final lowerCaseRowData = {for (var k in rowData.keys) k.toLowerCase(): rowData[k]};
 
     if (!lowerCaseRowData.containsKey('perapertura') || !lowerCaseRowData.containsKey('numpag')) {
@@ -272,7 +274,8 @@ order by titolo,strumento
       rows: _queryResults.map((row) {
         return DataRow2(
           onTap: () => _openPdfFromRow(row),
-          cells: row.values.map((cell) => DataCell(SelectableText(cell?.toString() ?? 'NULL', style: const TextStyle(fontSize: 11)))).toList(),
+          // FIX: Sostituito SelectableText con Text per il debug del tap su Android
+          cells: row.values.map((cell) => DataCell(Text(cell?.toString() ?? 'NULL', style: const TextStyle(fontSize: 11)))).toList(),
         );
       }).toList(),
     );

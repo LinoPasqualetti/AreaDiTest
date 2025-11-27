@@ -1,3 +1,6 @@
+/////           primo_test_db_screen.dart    ////
+//////       emette una lista dei db e delle tabelle del sistema
+library;
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:data_table_2/data_table_2.dart';

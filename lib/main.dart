@@ -1,13 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:io'; // <-- FIX: Aggiunto import mancante per la classe Platform
+import 'dart:io';
 
 import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
-// --- Logica di Business e Schermate ---
 import 'database_utils.dart';
 import 'inizializza_i_db_della_app.dart'; 
 import 'CatturaDialoghi.dart';
@@ -18,14 +17,12 @@ import 'test_apertura_files_screen.dart';
 import 'funzioni_variazione_dati_screen.dart';
 import 'catalogazione_derivata_screen.dart';
 import 'GestisciElencoCataloghi.dart';
-import 'menu_delle_variazioni_db.dart'; // <-- NUOVO IMPORT
+import 'menu_delle_variazioni_db.dart';
 
-// --- Logica di apertura file specifica per piattaforma ---
 import 'platform/opener_platform_interface.dart';
 import 'platform/android_opener.dart';
 import 'platform/windows_opener.dart';
 
-// --- Variabili Globali ---
 String gActiveCatalogDbName = ''; 
 Database? gDbGlobale;
 Database? gDatabase; 
@@ -38,13 +35,14 @@ String gPercorsoPdf = '';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inizializzazione della factory del DB per la piattaforma corrente
+  // --- FIX: Abilita FTS5 su tutte le piattaforme ---
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWeb;
-  } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+  } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS || Platform.isAndroid) { // Aggiunto Android
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
+  // --- FINE FIX ---
 
   if (Platform.isWindows) {
     OpenerPlatformInterface.instance = WindowsOpener();
@@ -52,7 +50,6 @@ Future<void> main() async {
     OpenerPlatformInterface.instance = AndroidOpener();
   }
 
-  // L'app parte sempre, il caricamento dei DB avviene nella MainScreen
   runApp(const AreaDiTestApp());
 }
 
@@ -82,25 +79,14 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0;
-  bool _isInitializing = true;
-  String? _initError;
+  late final Future<void> _initializationFuture;
 
-  @override
-  void initState() {
-    super.initState();
-    // Chiama la funzione di inizializzazione autonoma e gestisce i risultati
-    inizializzaIDbDellaApp().catchError((e) {
-      if(mounted) setState(() => _initError = e.toString());
-    }).whenComplete(() {
-      if(mounted) setState(() => _isInitializing = false);
-    });
-  }
+  int _selectedIndex = 0;
 
   final List<String> _titles = <String>[
     'Home',
     'Test Parametri Sistema',
-    'Gestione Database', // <-- TITOLO AGGIORNATO
+    'Gestione Database',
     'Primo Test DB',
     'Test Base Catalogo',
     'Cattura Dialoghi',
@@ -109,19 +95,90 @@ class _MainScreenState extends State<MainScreen> {
     'Catalogazione Derivata',
   ];
 
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+  @override
+  void initState() {
+    super.initState();
+    _initializationFuture = inizializzaIDbDellaApp();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _initializationFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final initError = snapshot.hasError ? snapshot.error.toString() : null;
+
+        return _buildMainScaffold(context, initError);
+      },
+    );
+  }
+
+  Widget _buildMainScaffold(BuildContext context, String? initError) {
+    final List<BottomNavigationBarItem> bottomNavItems = [
+      const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+      const BottomNavigationBarItem(icon: Icon(Icons.settings_applications), label: 'Sistema'),
+      const BottomNavigationBarItem(icon: Icon(Icons.edit_document), label: 'Gestione'),
+      const BottomNavigationBarItem(icon: Icon(Icons.storage), label: 'DB Test'),
+      const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Catalogo'),
+      const BottomNavigationBarItem(icon: Icon(Icons.description), label: 'Cattura Dialoghi'),
+      const BottomNavigationBarItem(icon: Icon(Icons.folder_open), label: 'Files'),
+      const BottomNavigationBarItem(icon: Icon(Icons.functions), label: 'Dati'),
+      const BottomNavigationBarItem(icon: Icon(Icons.compare_arrows), label: 'Cat. Derivata'),
+    ];
+    
+    final List<Widget> pages = [
+      HomeScreen(initError: initError),
+      TestParametriSistemaScreen(),
+      const MenuDelleVariazioniDb(),
+      PrimoTestDbScreen(),
+      TestBaseCatalogoScreen(),
+      CatturaDialoghiScreen(),
+      TestAperturaFilesScreen(),
+      FunzioniVariazioneDatiScreen(),
+      CatalogazioneDerivataScreen(),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 40.0,
+        title: SelectableText(_titles[_selectedIndex]),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Mostra Parametri di Sistema',
+            onPressed: () => _showDatiSistemaDialog(context),
+          ),
+        ],
+      ),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: pages,
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        items: bottomNavItems,
+        currentIndex: _selectedIndex,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        selectedFontSize: 12,
+        unselectedFontSize: 10,
+      ),
+    );
   }
 
   Future<void> _showDatiSistemaDialog(BuildContext context) async {
-    if (gDbGlobale == null || !gDbGlobale!.isOpen) {
+     if (gDbGlobale == null || !gDbGlobale!.isOpen) {
        showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Database non inizializzato'),
-          content: const Text('Per favore, vai alla sezione \"Gestione\" per configurare i database.'), // <-- TESTO AGGIORNATO
+          content: const Text('Per favore, vai alla sezione \"Gestione\" per configurare i database.'),
           actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('OK'))],
         ),
       );
@@ -242,71 +299,6 @@ class _MainScreenState extends State<MainScreen> {
       ],
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final List<BottomNavigationBarItem> bottomNavItems = [
-      const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-      const BottomNavigationBarItem(icon: Icon(Icons.settings_applications), label: 'Sistema'),
-      const BottomNavigationBarItem(icon: Icon(Icons.edit_document), label: 'Gestione'), // <-- ICONA E LABEL AGGIORNATE
-      const BottomNavigationBarItem(icon: Icon(Icons.storage), label: 'DB Test'),
-      const BottomNavigationBarItem(icon: Icon(Icons.inventory_2), label: 'Catalogo'),
-      const BottomNavigationBarItem(icon: Icon(Icons.description), label: 'Cattura Dialoghi'),
-      const BottomNavigationBarItem(icon: Icon(Icons.folder_open), label: 'Files'),
-      const BottomNavigationBarItem(icon: Icon(Icons.functions), label: 'Dati'),
-      const BottomNavigationBarItem(icon: Icon(Icons.compare_arrows), label: 'Cat. Derivata'),
-    ];
-    
-    final List<Widget> pages = [
-      HomeScreen(initError: _initError),
-      TestParametriSistemaScreen(),
-      const MenuDelleVariazioniDb(), // <-- SCHERMATA SOSTITUITA
-      PrimoTestDbScreen(),
-      TestBaseCatalogoScreen(),
-      CatturaDialoghiScreen(),
-      TestAperturaFilesScreen(),
-      FunzioniVariazioneDatiScreen(),
-      CatalogazioneDerivataScreen(),
-    ];
-
-    if (_isInitializing) {
-      return Scaffold(
-        body: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-        bottomNavigationBar: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          items: bottomNavItems,
-          currentIndex: 0,
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 40.0,
-        title: SelectableText(_titles[_selectedIndex]),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'Mostra Parametri di Sistema',
-            onPressed: () => _showDatiSistemaDialog(context),
-          ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: pages,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        items: bottomNavItems,
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        selectedFontSize: 12,
-        unselectedFontSize: 10,
-      ),
-    );
-  }
 }
 
 class HomeScreen extends StatelessWidget {
@@ -315,25 +307,39 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String statusText;
-    bool isDbOk = (gDatabase != null && gDatabase!.isOpen) && (gDbGlobale != null && gDbGlobale!.isOpen);
-    
-    String errorText = initError ?? 'Usare la sezione "Gestione" per configurare i database.';
-
-    if (isDbOk) {
-        statusText = 'Tutti i database sono stati aperti con successo.';
-    } else {
-        statusText = 'Database non inizializzati. \n$errorText';
+    if (initError != null) {
+       return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: SelectableText(
+            'Database non inizializzati. \nERRORE: $initError',
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 18, color: Colors.red),
+          ),
+        ));
     }
 
-    return Center(
+    bool isDbOk = (gDatabase != null && gDatabase!.isOpen) && (gDbGlobale != null && gDbGlobale!.isOpen);
+    if (isDbOk) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(16.0),
+            child: SelectableText(
+              'Tutti i database sono stati aperti con successo.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, color: Colors.green),
+            ),
+          ));
+    } else {
+      return const Center(
         child: Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: SelectableText(
-        statusText,
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 18, color: isDbOk ? Colors.black : Colors.red),
-      ),
-    ));
+            padding: EdgeInsets.all(16.0),
+            child: SelectableText(
+              'Database non pronti. Causa sconosciuta.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, color: Colors.orange),
+            ),
+          ));
+    }
   }
 }

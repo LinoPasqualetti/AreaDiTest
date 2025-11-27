@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 
 /// Inizializza il database per la piattaforma WEB.
 Future<Database> initDatabase(String dbName) async {
