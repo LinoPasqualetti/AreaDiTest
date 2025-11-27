@@ -27,9 +27,10 @@ dependencies:
   sqflite_common_ffi_web: ^1.0.1+2
   data_table_2: ^2.5.10
   url_launcher: ^6.2.2
-  
-  # FIX: Aggiunge la libreria nativa di SQLite con FTS5 per Android
   sqlite3_flutter_libs: ^0.5.0
+
+  # FIX: Aggiunto il visualizzatore PDF interno per Android
+  flutter_pdfview: ^1.3.2
 
 dev_dependencies:
   flutter_test:
