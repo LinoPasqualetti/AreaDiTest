@@ -35,14 +35,12 @@ String gPercorsoPdf = '';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // --- FIX: Abilita FTS5 su tutte le piattaforme ---
   if (kIsWeb) {
     databaseFactory = databaseFactoryFfiWeb;
-  } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS || Platform.isAndroid) { // Aggiunto Android
+  } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS || Platform.isAndroid) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   }
-  // --- FINE FIX ---
 
   if (Platform.isWindows) {
     OpenerPlatformInterface.instance = WindowsOpener();
@@ -319,27 +317,25 @@ class HomeScreen extends StatelessWidget {
         ));
     }
 
-    bool isDbOk = (gDatabase != null && gDatabase!.isOpen) && (gDbGlobale != null && gDbGlobale!.isOpen);
-    if (isDbOk) {
-        return const Center(
-          child: Padding(
-            padding: EdgeInsets.all(16.0),
-            child: SelectableText(
-              'Tutti i database sono stati aperti con successo.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, color: Colors.green),
-            ),
-          ));
-    } else {
-      return const Center(
-        child: Padding(
-            padding: EdgeInsets.all(16.0),
-            child: SelectableText(
-              'Database non pronti. Causa sconosciuta.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, color: Colors.orange),
-            ),
-          ));
-    }
+    // --- FIX: Aggiunge l'immagine di sfondo ---
+    return Container(
+      decoration: const BoxDecoration(
+        image: DecorationImage(
+          image: AssetImage("assets/images/SfondoLibriRBeAebCubista.jpg"),
+          fit: BoxFit.cover,
+        ),
+      ),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          color: Colors.black.withOpacity(0.5),
+          child: const Text(
+            'Tutti i database sono stati aperti con successo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        ),
+      ),
+    );
   }
 }

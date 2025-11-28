@@ -1,9 +1,12 @@
+//// funzioni_variazione_dati_screen.dart
+/////ricerca fts su spartiti con filtri e apertura pdf
 import 'package:flutter/material.dart';
 import 'package:data_table_2/data_table_2.dart';
 
 import 'main.dart';
 import 'platform/opener_platform_interface.dart'; 
 
+/// Schermata di ricerca avanzata per gli spartiti.
 class FunzioniVariazioneDatiScreen extends StatefulWidget {
   const FunzioniVariazioneDatiScreen({super.key});
 
@@ -13,16 +16,19 @@ class FunzioniVariazioneDatiScreen extends StatefulWidget {
 }
 
 class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScreen> with AutomaticKeepAliveClientMixin {
-  bool _isLoading = true;
   bool _isQueryRunning = false;
   String? _error;
   List<Map<String, dynamic>> _queryResults = [];
-  List<String> _tableFields = [];
   
   Duration? _dbQueryTime;
   Duration? _uiBuildTime;
 
-  late final TextEditingController _sqlController;
+  // Controller per i campi di ricerca
+  late final TextEditingController _ricercaController;
+  late final TextEditingController _strumentoController;
+  late final TextEditingController _volumeController;
+  late final TextEditingController _provenienzaController;
+  late final TextEditingController _tipoMultiController;
 
   @override
   bool get wantKeepAlive => true;
@@ -30,50 +36,21 @@ class _FunzioniVariazioneDatiScreenState extends State<FunzioniVariazioneDatiScr
   @override
   void initState() {
     super.initState();
-
-    final String defaultQuery = """
-select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.titolo,a.volume,a.ArchivioProvenienza, a.strumento,primolink, '${gPercorsoPdf}' as percradice, percresto 
- from $gSpartitiTableName a
- JOIN spartiti_fts fts on a.idBra=fts.rowid
-  where a.tipoMulti like 'PD%' and spartiti_fts match 'girl ipanema'
- order by a.titolo,a.strumento
-""";
-
-    _sqlController = TextEditingController(text: defaultQuery);
-    _loadTableInfo();
+    _ricercaController = TextEditingController();
+    _strumentoController = TextEditingController();
+    _volumeController = TextEditingController();
+    _provenienzaController = TextEditingController();
+    _tipoMultiController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _sqlController.dispose();
+    _ricercaController.dispose();
+    _strumentoController.dispose();
+    _volumeController.dispose();
+    _provenienzaController.dispose();
+    _tipoMultiController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadTableInfo() async {
-    if (gDatabase == null) {
-      setState(() {
-        _error = "Database non disponibile. Controllare l'errore all'avvio.";
-        _isLoading = false;
-      });
-      return;
-    }
-    try {
-      final tableInfo = await gDatabase!.rawQuery('PRAGMA table_info($gSpartitiTableName);');
-      final fields = tableInfo.map((row) => row['name'] as String).toList();
-      if (mounted) {
-        setState(() {
-          _tableFields = fields;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = "Errore nel leggere la struttura della tabella: ${e.toString()}";
-          _isLoading = false;
-        });
-      }
-    }
   }
 
   Future<void> _executeQuery() async {
@@ -87,8 +64,54 @@ select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.t
     });
     
     try {
+      final whereClauses = <String>[];
+      final whereArgs = <dynamic>[];
+
+      if (_ricercaController.text.isNotEmpty) {
+        whereClauses.add('spartiti_fts MATCH ?');
+        whereArgs.add('"${_ricercaController.text}"');
+      }
+      if (_tipoMultiController.text.isNotEmpty) {
+        whereClauses.add('a.tipoMulti LIKE ?');
+        whereArgs.add(_tipoMultiController.text);
+      }
+      if (_volumeController.text.isNotEmpty) {
+        whereClauses.add('a.volume LIKE ?');
+        whereArgs.add(_volumeController.text);
+      }
+      if (_provenienzaController.text.isNotEmpty) {
+        whereClauses.add('a.ArchivioProvenienza LIKE ?');
+        whereArgs.add(_provenienzaController.text);
+      }
+      if (_strumentoController.text.isNotEmpty) {
+        whereClauses.add('a.strumento LIKE ?');
+        whereArgs.add(_strumentoController.text);
+      }
+
+      String whereStatement = whereClauses.isNotEmpty ? 'WHERE ${whereClauses.join(' AND ')}' : '';
+
+      final sanitizedPercorsoPdf = gPercorsoPdf.replaceAll("'", "''");
+
+      // FIX: Usa la query fornita dall'utente che definisce l'ordine e la formattazione corretti
+      final sql = """
+        select distinct
+          a.titolo,
+          printf('%-7.7s', CAST(Numpag AS TEXT)) as Numpag,
+          a.volume,
+          a.ArchivioProvenienza,
+          printf('%-7.7s', a.strumento) as strumento,
+          primolink,
+          '$sanitizedPercorsoPdf' as percradice,
+          '$sanitizedPercorsoPdf'||percresto||a.volume as PerApertura,
+          percresto
+        from $gSpartitiTableName a
+        JOIN spartiti_fts fts on a.idBra=fts.rowid
+        $whereStatement
+        order by a.titolo, a.strumento
+      """;
+
       final dbStopwatch = Stopwatch()..start();
-      final results = await gDatabase!.rawQuery(_sqlController.text);
+      final results = await gDatabase!.rawQuery(sql, whereArgs);
       dbStopwatch.stop();
 
       if (mounted) {
@@ -100,11 +123,8 @@ select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.t
         });
         
         WidgetsBinding.instance.addPostFrameCallback((_) {
-            uiStopwatch.stop();
             if (mounted) {
-              setState(() {
-                _uiBuildTime = uiStopwatch.elapsed;
-              });
+              setState(() => _uiBuildTime = uiStopwatch.elapsed);
             }
         });
       }
@@ -120,15 +140,11 @@ select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.t
   }
 
   Future<void> _openPdfFromRow(Map<String, dynamic> rowData) async {
-    print("--- DEBUG: Dati ricevuti dalla riga selezionata ---");
-    print(rowData);
-    print("--------------------------------------------------");
-
     final lowerCaseRowData = {for (var k in rowData.keys) k.toLowerCase(): rowData[k]};
 
     if (!lowerCaseRowData.containsKey('perapertura') || !lowerCaseRowData.containsKey('numpag')) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('ERRORE: La query deve contenere le colonne "PerApertura" e "Numpag" per poter aprire il PDF.'),
+        content: Text('ERRORE: La query deve contenere le colonne "PerApertura" e "Numpag".'),
         backgroundColor: Colors.red,
       ));
       return;
@@ -145,9 +161,8 @@ select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.t
       return;
     }
 
-    final page = int.tryParse(pageNum?.toString() ?? '1') ?? 1;
+    final page = int.tryParse(pageNum?.toString().trim() ?? '1') ?? 1;
 
-    print('Richiesta apertura PDF da riga: $filePath a pagina $page');
     await OpenerPlatformInterface.instance.openPdf(
       context: context,
       filePath: filePath,
@@ -159,102 +174,97 @@ select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.t
   Widget build(BuildContext context) {
     super.build(context);
 
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null && gDatabase == null) {
-       return Center(child: SelectableText(_error!, style: const TextStyle(color: Colors.red)));
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-           Text("Tabella attiva: $gSpartitiTableName", style: const TextStyle(fontWeight: FontWeight.bold, fontStyle: FontStyle.italic)),
-           const SizedBox(height: 10),
-          TextField(
-            controller: _sqlController,
-            maxLines: 5,
-            decoration: const InputDecoration(labelText: 'Comando SQL', border: OutlineInputBorder()),
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.redAccent),
-          ),
-          const SizedBox(height: 5),
-          _buildQueryControls(),
-          const Divider(),
-          Expanded(
-            child: _buildResultsSection(),
-          ),
-        ],
+    return Scaffold(
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+             _buildSearchPanel(),
+             const SizedBox(height: 10),
+             _buildQueryControls(),
+             const Divider(),
+             Expanded(
+               child: _buildResultsSection(),
+             ),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildSearchPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Ricerca Testuale (FTS)', style: TextStyle(fontWeight: FontWeight.bold)),
+        TextField(
+          controller: _ricercaController,
+          decoration: const InputDecoration(
+            hintText: 'Es: girl ipanema', 
+            border: OutlineInputBorder(),
+            isDense: true, 
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text('Filtri (usare % per wildcard LIKE)', style: TextStyle(fontWeight: FontWeight.bold)),
+        Row(
+          children: [
+            Expanded(child: _buildFilterField(_strumentoController, 'Strumento')),
+            const SizedBox(width: 8),
+            Expanded(child: _buildFilterField(_volumeController, 'Volume')),
+            const SizedBox(width: 8),
+            Expanded(child: _buildFilterField(_provenienzaController, 'Provenienza')),
+            const SizedBox(width: 8),
+            Expanded(child: _buildFilterField(_tipoMultiController, 'TipoMulti')),
+          ],
+        )
+      ],
+    );
+  }
+
+  Widget _buildFilterField(TextEditingController controller, String label) {
+    return TextField(
+        controller: controller,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true, 
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10), 
+        ),
+      );
   }
 
   Widget _buildQueryControls() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            ElevatedButton.icon(
-              onPressed: _isQueryRunning ? null : _executeQuery,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Esegui Query'),
-            ),
-            const SizedBox(width: 16),
-            if (!_isQueryRunning && _queryResults.isNotEmpty)
-              Text('Trovati: ${_queryResults.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
-          ],
+        ElevatedButton.icon(
+          onPressed: _isQueryRunning ? null : _executeQuery,
+          icon: const Icon(Icons.play_arrow),
+          label: const Text('Esegui Query'),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 2),
+        if (!_isQueryRunning && _queryResults.isNotEmpty)
+          Text('Trovati: ${_queryResults.length}', style: const TextStyle(fontWeight: FontWeight.bold)),
         if (_dbQueryTime != null) 
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
-            child: Text(
-              'Tempo Query DB (ricerca+sort+transfer): ${_dbQueryTime!.inMilliseconds} ms',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: _dbQueryTime!.inMilliseconds > 500 ? Colors.red : Colors.green,
-              ),
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 2.0),
+            child: Text('Tempo Query DB: ${_dbQueryTime!.inMilliseconds} ms', style: const TextStyle(fontSize: 10, color: Colors.grey)),
           ),
         if (_uiBuildTime != null)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4.0),
-            child: Text(
-              'Tempo Costruzione UI (DataTable2): ${_uiBuildTime!.inMilliseconds} ms',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: _uiBuildTime!.inMilliseconds > 200 ? Colors.orange.shade800 : Colors.green,
-              ),
-            ),
+            padding: const EdgeInsets.symmetric(vertical: 2.0),
+            child: Text('Tempo UI: ${_uiBuildTime!.inMilliseconds} ms', style: const TextStyle(fontSize: 10, color: Colors.grey)),
           ),
-        const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Campi disponibili: '),
-            Expanded(
-              child: Wrap(
-                spacing: 8.0,
-                runSpacing: 4.0,
-                children: _tableFields.map((field) => SelectableText(
-                  field,
-                  style: const TextStyle(fontSize: 11, backgroundColor: Color.fromARGB(255, 235, 235, 235)),
-                )).toList(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
       ],
     );
   }
 
   Widget _buildResultsSection() {
     if (_isQueryRunning) return const Center(child: CircularProgressIndicator());
-    if (_error != null) return Center(child: SelectableText(_error!, style: const TextStyle(color: Colors.blue)));
-    if (_queryResults.isEmpty) return const Center(child: Text('Nessun risultato o query non ancora eseguita.'));
+    if (_error != null) return Center(child: SelectableText(_error!, style: const TextStyle(color: Colors.red)));
+    if (_queryResults.isEmpty) return const Center(child: Text('Nessun risultato. Esegui una ricerca.'));
 
     final columnKeys = _queryResults.first.keys.toList();
     return DataTable2(
@@ -262,20 +272,15 @@ select distinct '${gPercorsoPdf}'||percresto||a.volume as PerApertura,Numpag,a.t
       horizontalMargin: 10,
       minWidth: 2000,
       columns: columnKeys.map((key) {
-        ColumnSize size;
-        switch (key.toLowerCase()) {
-          case 'perapertura': size = ColumnSize.M; break;
-          case 'numpag': size = ColumnSize.S; break;
-          case 'titolo': size = ColumnSize.L; break;
-          default: size = ColumnSize.M;
-        }
-        return DataColumn2(label: Text(key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)), size: size);
+        return DataColumn2(label: Text(key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)));
       }).toList(),
       rows: _queryResults.map((row) {
         return DataRow2(
           onTap: () => _openPdfFromRow(row),
-          // FIX: Sostituito SelectableText con Text per il debug del tap su Android
-          cells: row.values.map((cell) => DataCell(Text(cell?.toString() ?? 'NULL', style: const TextStyle(fontSize: 11)))).toList(),
+          cells: row.values.map((cell) => DataCell(Text(
+            cell?.toString() ?? 'NULL',
+            style: const TextStyle(fontFamily: 'monospace'), // FIX: Usa un font monospazio
+          ))).toList(),
         );
       }).toList(),
     );
